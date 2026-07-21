@@ -1,0 +1,1463 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+// ─── ENUMS ──────────────────────────────────────────────────────────────────
+
+enum UserRole {
+  SUPER_ADMIN
+  MANAGER
+  LEADER
+  USER
+}
+
+enum UserStatus {
+  ACTIVE
+  INACTIVE
+}
+
+enum LeadStatus {
+  POOL
+  ZOOM
+  ASSIGNED
+  IN_PROGRESS
+  CONVERTED
+  LOST
+  FLOATING
+}
+
+enum CustomerStatus {
+  ACTIVE
+  INACTIVE
+  FLOATING
+}
+
+enum OrderStatus {
+  PENDING /// Đang chạy - chưa thu đủ tiền thật
+  COMPLETED /// Đã thu đủ tiền thật (SUM payment VERIFIED+REJECTED >= totalAmount)
+}
+
+enum PaymentStatus {
+  PENDING /// Chờ duyệt - chưa tính vào ví nào
+  VERIFIED /// Tiền về, đúng - tính doanh thu tổng VÀ doanh số sale
+  REJECTED /// Tiền CÓ về nhưng sale nhập sai (phạt) - tính doanh thu tổng, KHÔNG tính sale
+  REFUNDED /// Tiền đã về rồi trả lại khách - không tính ví nào
+  CANCELLED /// Tạo nhầm, tiền KHÔNG về - không tính ví nào
+}
+
+enum VerifiedSource {
+  AUTO
+  MANUAL
+  AUTO_FUZZY
+}
+
+enum BankAccountDirection {
+  THU /// Tài khoản nhận tiền (doanh thu)
+  CHI /// Tài khoản chi tiền
+}
+
+enum CallType {
+  OUTGOING
+  INCOMING
+  MISSED
+}
+
+enum MatchStatus {
+  AUTO_MATCHED
+  UNMATCHED
+  MANUALLY_MATCHED
+  FUZZY_MATCHED
+  IGNORED
+}
+
+enum EntityType {
+  LEAD
+  CUSTOMER
+  ORDER
+}
+
+enum ActivityType {
+  NOTE
+  CALL
+  STATUS_CHANGE
+  ASSIGNMENT
+  LABEL_CHANGE
+  SYSTEM
+  TIER_CHANGE
+}
+
+enum TaskStatus {
+  PENDING
+  COMPLETED
+  CANCELLED
+}
+
+enum TaskPriority {
+  LOW
+  MEDIUM
+  HIGH
+}
+
+enum ImportStatus {
+  PENDING_REVIEW
+  REVIEWED
+  PROCESSING
+  COMPLETED
+  FAILED
+  CANCELLED
+}
+
+// ─── USER & ORGANIZATION ────────────────────────────────────────────────────
+
+model User {
+  id               BigInt     @id @default(autoincrement())
+  email            String
+  passwordHash     String     @map("password_hash")
+  phone            String?
+  name             String
+  address          String?
+  role             UserRole   @default(USER)
+  departmentId     BigInt?    @map("department_id")
+  teamId           BigInt?    @map("team_id")
+  employeeLevelId  BigInt?    @map("employee_level_id")
+  status           UserStatus @default(ACTIVE)
+  failedLoginCount Int        @default(0) @map("failed_login_count")
+  lockedUntil      DateTime?  @map("locked_until")
+  metadata         Json?
+  createdAt        DateTime   @default(now()) @map("created_at")
+  updatedAt        DateTime   @updatedAt @map("updated_at")
+  deletedAt        DateTime?  @map("deleted_at")
+
+  department    Department?         @relation(fields: [departmentId], references: [id])
+  team          Team?               @relation("TeamMembers", fields: [teamId], references: [id])
+  employeeLevel EmployeeLevel?      @relation(fields: [employeeLevelId], references: [id])
+  // leadingTeams: Type-level many (Prisma cần khi bỏ @unique để support partial unique trên leader_id).
+  // Về mặt nghiệp vụ: 1 user chỉ lead 1 team active tại 1 thời điểm - enforced bởi partial unique index
+  // `idx_teams_leader_active` trong raw-indexes.sql (WHERE deleted_at IS NULL).
+  leadingTeams  Team[]              @relation("TeamLeader")
+  managedDepts  ManagerDepartment[] @relation("ManagedDepartments")
+
+  // Leads & Customers assigned to user
+  assignedLeads     Lead[]     @relation("LeadAssignedUser")
+  assignedCustomers Customer[] @relation("CustomerAssignedUser")
+
+  // Activities, orders, etc. created by user
+  activities        Activity[]
+  ordersCreated     Order[]    @relation("OrderCreator")
+  refundsCreated    Refund[]   @relation("RefundCreator")
+  paymentsVerified  Payment[]  @relation("PaymentVerifier")
+  paymentsCreated   Payment[]  @relation("PaymentCreator")
+  documentsUploaded Document[]
+  callFeedbacks     CallFeedback[] @relation("CallFeedbackAuthor")
+
+  // Assignment history
+  assignmentsFrom AssignmentHistory[] @relation("AssignmentFromUser")
+  assignmentsTo   AssignmentHistory[] @relation("AssignmentToUser")
+  assignmentsMade AssignmentHistory[] @relation("AssignmentByUser")
+
+  // Auth
+  refreshTokens RefreshToken[]
+
+  // Config & templates
+  assignmentTemplatesCreated AssignmentTemplate[]
+  recallConfigsCreated       RecallConfig[]
+  labelRecallConfigsCreated  LabelRecallConfig[]
+  apiKeysCreated             ApiKey[]
+  webhookEndpointsCreated    WebhookEndpoint[] @relation("WebhookEndpointCreator")
+
+  // Tasks
+  tasksAssigned Task[] @relation("TaskAssignee")
+  tasksCreated  Task[] @relation("TaskCreator")
+
+  // Customer alternate phones (audit who added)
+  createdCustomerPhones CustomerPhone[] @relation("CustomerPhoneCreator")
+
+  // Notifications
+  notifications Notification[]
+
+  // Web Push subscriptions (thiết bị nhận push của user)
+  pushSubscriptions PushSubscription[]
+
+  // Import jobs
+  importJobs ImportJob[]
+
+  // Cac dot import don hang/payment do user nay upload
+  paymentImportBatches PaymentImportBatch[] @relation("PaymentImportUploader")
+
+  // Template membership
+  templateMemberships AssignmentTemplateMember[]
+
+  // Audit logs (system trace)
+  auditLogs AuditLog[] @relation("AuditLogUser")
+
+  // User phone assignment (1 user N phones, audit trail in history)
+  userPhones         UserPhone[]        @relation("UserPhoneOwner")
+  userPhonesAssigned UserPhone[]        @relation("UserPhoneAssigner")
+  userPhoneHistory   UserPhoneHistory[] @relation("UserPhoneHistoryUser")
+  userPhoneChanges   UserPhoneHistory[] @relation("UserPhoneHistoryChanger")
+
+  // OmiCall SIP config (1:1)
+  sipConfig UserSipConfig?
+
+  // KPI doanh số (1 user N năm)
+  kpiTargets        UserKpiTarget[] @relation("UserKpiTargets")
+  kpiTargetsCreated UserKpiTarget[] @relation("UserKpiTargetsCreator")
+
+  @@unique([email, deletedAt])
+  @@index([departmentId])
+  @@index([teamId])
+  @@index([role, status])
+  @@map("users")
+}
+
+model Department {
+  id        BigInt    @id @default(autoincrement())
+  name      String
+  createdAt DateTime  @default(now()) @map("created_at")
+  updatedAt DateTime  @updatedAt @map("updated_at")
+  deletedAt DateTime? @map("deleted_at")
+
+  users    User[]
+  teams    Team[]
+  managers ManagerDepartment[]
+
+  leads            Lead[]
+  customers        Customer[]
+  departmentLabels DepartmentLabel[]
+  viewConfig       DepartmentViewConfig?
+
+  assignmentsFromDept AssignmentHistory[] @relation("AssignmentFromDept")
+  assignmentsToDept   AssignmentHistory[] @relation("AssignmentToDept")
+
+  aiDistributionConfig AiDistributionConfig?
+
+  @@map("departments")
+}
+
+model EmployeeLevel {
+  id        BigInt    @id @default(autoincrement())
+  name      String
+  rank      Int
+  maxLeads  Int?      @map("max_leads") /// Max leads+customers a user at this level can hold (null = unlimited)
+  createdAt DateTime  @default(now()) @map("created_at")
+  updatedAt DateTime  @updatedAt @map("updated_at")
+  deletedAt DateTime? @map("deleted_at")
+
+  users User[]
+
+  @@map("employee_levels")
+}
+
+model Team {
+  id           BigInt    @id @default(autoincrement())
+  name         String
+  departmentId BigInt    @map("department_id")
+  // leaderId: partial unique index (WHERE deleted_at IS NULL) trong raw-indexes.sql
+  // Cho phép reuse leader sau khi team cũ đã bị soft-delete
+  leaderId     BigInt    @map("leader_id")
+  createdAt    DateTime  @default(now()) @map("created_at")
+  updatedAt    DateTime  @updatedAt @map("updated_at")
+  deletedAt    DateTime? @map("deleted_at")
+
+  department Department @relation(fields: [departmentId], references: [id])
+  leader     User       @relation("TeamLeader", fields: [leaderId], references: [id])
+  members    User[]     @relation("TeamMembers")
+
+  @@index([departmentId])
+  @@map("teams")
+}
+
+model ManagerDepartment {
+  managerId    BigInt   @map("manager_id")
+  departmentId BigInt   @map("department_id")
+  assignedAt   DateTime @default(now()) @map("assigned_at")
+
+  manager    User       @relation("ManagedDepartments", fields: [managerId], references: [id])
+  department Department @relation(fields: [departmentId], references: [id])
+
+  @@id([managerId, departmentId])
+  @@index([departmentId])
+  @@map("manager_departments")
+}
+
+// ─── LEAD & CUSTOMER ────────────────────────────────────────────────────────
+
+model Customer {
+  id                   BigInt         @id @default(autoincrement())
+  phone                String
+  name                 String
+  email                String?
+  companyName          String?        @map("company_name")
+  facebookUrl          String?        @map("facebook_url")
+  instagramUrl         String?        @map("instagram_url")
+  zaloUrl              String?        @map("zalo_url")
+  linkedinUrl          String?        @map("linkedin_url")
+  addressProvinceCode  String?        @map("address_province_code") /// Mã tỉnh/thành theo addresskit (mô hình 2 cấp)
+  addressProvinceName  String?        @map("address_province_name") /// Tên tỉnh/thành snapshot tại thời điểm chọn
+  addressWardCode      String?        @map("address_ward_code") /// Mã phường/xã theo addresskit
+  addressWardName      String?        @map("address_ward_name") /// Tên phường/xã snapshot tại thời điểm chọn
+  addressStreet        String?        @map("address_street") /// Số nhà + tên đường (tự nhập)
+  shortDescription     String?        @map("short_description")
+  description          String?
+  aiRating             Int?           @map("ai_rating") /// AI đánh giá 1-5 sao
+  birthday             DateTime?      @map("birthday") @db.Date /// Sinh nhật KH (chỉ ngày, không giờ)
+  avatarUrl            String?        @map("avatar_url") /// Path relative `/uploads/avatars/customer/{uuid}.{ext}`
+  totalSpent           Decimal        @default(0) @db.Decimal(14, 2) @map("total_spent") /// Denormalized SUM(payments.amount WHERE status=VERIFIED)
+  currentTierId        BigInt?        @map("current_tier_id")
+  assignedUserId       BigInt?        @map("assigned_user_id")
+  assignedDepartmentId BigInt?        @map("assigned_department_id")
+  status               CustomerStatus @default(ACTIVE)
+  metadata             Json?
+  createdAt            DateTime       @default(now()) @map("created_at")
+  updatedAt            DateTime       @updatedAt @map("updated_at")
+  deletedAt            DateTime?      @map("deleted_at")
+
+  assignedUser       User?         @relation("CustomerAssignedUser", fields: [assignedUserId], references: [id])
+  assignedDepartment Department?   @relation(fields: [assignedDepartmentId], references: [id])
+  currentTier        CustomerTier? @relation(fields: [currentTierId], references: [id])
+
+  leads  Lead[]
+  orders Order[]
+  labels CustomerLabel[]
+  phones CustomerPhone[]
+
+  @@index([assignedUserId])
+  @@index([assignedDepartmentId, assignedUserId])
+  @@index([currentTierId])
+  @@map("customers")
+}
+
+/// Config bảng phân hạng KH theo tổng chi tiêu Payment VERIFIED.
+/// SUPER_ADMIN tự config (CRUD qua /settings/customer-tiers).
+/// Soft delete = set isActive=false (giữ FK toàn vẹn).
+model CustomerTier {
+  id          BigInt   @id @default(autoincrement())
+  name        String /// "Kim Cương"
+  slug        String   @unique /// "diamond"
+  minSpending Decimal  @db.Decimal(12, 2) @map("min_spending") /// Ngưỡng VND
+  color       String /// Hex #RRGGBB
+  emoji       String? /// SUPER_ADMIN tự set, ưu tiên hơn iconKey khi render
+  iconKey     String?  @map("icon_key") /// Lucide icon name fallback (Award, Trophy, Medal, Gem, Crown, Star)
+  sortOrder   Int      @default(0) @map("sort_order")
+  benefits    String? /// Mô tả quyền lợi (text dài)
+  isActive    Boolean  @default(true) @map("is_active")
+  createdAt   DateTime @default(now()) @map("created_at")
+  updatedAt   DateTime @updatedAt @map("updated_at")
+
+  customers Customer[]
+
+  @@index([sortOrder])
+  @@map("customer_tiers")
+}
+
+/// Số điện thoại phụ của Customer. Số chính vẫn lưu ở Customer.phone.
+/// Dedup cross-table: 1 phone không thể trùng (chính HOẶC phụ) giữa 2 customer.
+model CustomerPhone {
+  id         BigInt    @id @default(autoincrement())
+  customerId BigInt    @map("customer_id")
+  phone      String /// đã normalize trước khi lưu (qua normalizePhone util)
+  label      String? /// "Vợ", "Thư ký", "Công ty"...
+  note       String? /// ghi chú tự do
+  createdBy  BigInt?   @map("created_by")
+  createdAt  DateTime  @default(now()) @map("created_at")
+  updatedAt  DateTime  @updatedAt @map("updated_at")
+  deletedAt  DateTime? @map("deleted_at")
+
+  customer Customer @relation(fields: [customerId], references: [id])
+  creator  User?    @relation("CustomerPhoneCreator", fields: [createdBy], references: [id])
+
+  @@index([customerId])
+  @@index([phone])
+  @@index([phone, deletedAt])
+  @@map("customer_phones")
+}
+
+/// SĐT phân cho user (sale). 1 user N phones, 1 phone 1 user active tại 1 thời điểm.
+/// Partial unique index `idx_user_phones_phone_active` (WHERE deleted_at IS NULL) trong raw-indexes.sql
+/// cho phép re-assign số đã soft-delete cho user khác.
+model UserPhone {
+  id         BigInt    @id @default(autoincrement())
+  phone      String
+  userId     BigInt    @map("user_id")
+  assignedAt DateTime  @default(now()) @map("assigned_at")
+  assignedBy BigInt    @map("assigned_by")
+  note       String?
+  createdAt  DateTime  @default(now()) @map("created_at")
+  updatedAt  DateTime  @updatedAt @map("updated_at")
+  deletedAt  DateTime? @map("deleted_at")
+
+  user     User @relation("UserPhoneOwner", fields: [userId], references: [id])
+  assigner User @relation("UserPhoneAssigner", fields: [assignedBy], references: [id])
+
+  @@index([userId, deletedAt])
+  @@index([phone, deletedAt])
+  @@map("user_phones")
+}
+
+/// Audit trail cho UserPhone: ghi lại khi transfer/delete/reassign.
+model UserPhoneHistory {
+  id         BigInt   @id @default(autoincrement())
+  phone      String
+  userId     BigInt   @map("user_id")
+  assignedAt DateTime @map("assigned_at")
+  releasedAt DateTime @map("released_at")
+  reason     String // TRANSFERRED | DELETED | REASSIGNED
+  changedBy  BigInt   @map("changed_by")
+  note       String?
+  createdAt  DateTime @default(now()) @map("created_at")
+
+  user    User @relation("UserPhoneHistoryUser", fields: [userId], references: [id])
+  changer User @relation("UserPhoneHistoryChanger", fields: [changedBy], references: [id])
+
+  @@index([phone, releasedAt])
+  @@index([userId, releasedAt])
+  @@map("user_phone_history")
+}
+
+/// Cau hinh SIP/tong dai OmiCall cho user. 1 user toi da 1 config active.
+/// Super_admin quan ly. User chi doc config cua minh de SDK register.
+model UserSipConfig {
+  id          BigInt    @id @default(autoincrement())
+  userId      BigInt    @unique @map("user_id")
+  sipRealm    String    @map("sip_realm")
+  sipUser     String    @map("sip_user")
+  sipPassword String    @map("sip_password")
+  isActive    Boolean   @default(true) @map("is_active")
+  createdAt   DateTime  @default(now()) @map("created_at")
+  updatedAt   DateTime  @updatedAt @map("updated_at")
+  deletedAt   DateTime? @map("deleted_at")
+
+  user User @relation(fields: [userId], references: [id])
+
+  @@index([userId, deletedAt])
+  @@map("user_sip_configs")
+}
+
+model Lead {
+  id              BigInt     @id @default(autoincrement())
+  phone           String
+  name            String
+  email           String?
+  companyName     String?    @map("company_name")
+  facebookUrl     String?    @map("facebook_url")
+  instagramUrl    String?    @map("instagram_url")
+  zaloUrl         String?    @map("zalo_url")
+  linkedinUrl     String?    @map("linkedin_url")
+  customerId      BigInt?    @map("customer_id")
+  productId       BigInt?    @map("product_id")
+  sourceId        BigInt?    @map("source_id")
+  groupId         BigInt?    @map("group_id")
+  assignedUserId  BigInt?    @map("assigned_user_id")
+  departmentId    BigInt?    @map("department_id")
+  labelId         BigInt?    @map("label_id")
+  // Timestamp of last label-recall reset event (label change OR assign/transfer).
+  // Used by LabelRecallConfig cron - replaces previous lead_labels.recall_start_at.
+  labelAssignedAt DateTime?  @map("label_assigned_at")
+  // Last time the NOTIFY-mode label cron pinged the assigned user about this
+  // lead. Idempotency: only notify when null OR < labelAssignedAt, so a fresh
+  // label assignment re-arms the reminder without any reset logic elsewhere.
+  labelNotifiedAt DateTime?  @map("label_notified_at")
+  // Timestamp of last assignment event (assign/transfer/claim/distribute).
+  // Auto-maintained by Postgres trigger on assignment_history INSERT (see pre-push-migrations.sql).
+  lastAssignedAt  DateTime?  @map("last_assigned_at")
+  status          LeadStatus @default(POOL)
+  metadata        Json?
+  createdAt       DateTime   @default(now()) @map("created_at")
+  updatedAt       DateTime   @updatedAt @map("updated_at")
+  deletedAt       DateTime?  @map("deleted_at")
+
+  customer     Customer?   @relation(fields: [customerId], references: [id])
+  product      Product?    @relation(fields: [productId], references: [id])
+  source       LeadSource? @relation(fields: [sourceId], references: [id])
+  group        LeadGroup?  @relation(fields: [groupId], references: [id])
+  assignedUser User?       @relation("LeadAssignedUser", fields: [assignedUserId], references: [id])
+  department   Department? @relation(fields: [departmentId], references: [id])
+  label        Label?      @relation(fields: [labelId], references: [id])
+
+  orders Order[]
+
+  @@index([customerId])
+  @@index([sourceId])
+  @@index([groupId])
+  @@index([productId])
+  @@index([status, assignedUserId])
+  @@index([departmentId])
+  @@index([labelId])
+  // Pool filter combo: status + source + product (covers /pool/new, /pool/zoom, /pool/floating with source/product filter)
+  @@index([status, sourceId, productId])
+  // Dept pool filter combo: dept + status + source (covers /pool/department + source filter)
+  @@index([departmentId, status, sourceId])
+  // CSV import dedup combo: phone + group + product (preserves per-group dedup granularity)
+  @@index([phone, groupId, productId])
+  // Filter "leads assigned in date range" - used on /pool/new + /pool/zoom
+  @@index([lastAssignedAt])
+  @@map("leads")
+}
+
+// Nguồn (Source) - cấp cha. Chỉ SUPER_ADMIN CRUD. Giữ cờ skipPool (kế thừa xuống nhóm con).
+model LeadSource {
+  id          BigInt   @id @default(autoincrement())
+  name        String
+  description String?
+  isActive    Boolean  @default(true) @map("is_active")
+  skipPool    Boolean  @default(false) @map("skip_pool") /// If true, leads from this source skip pool and go directly to AI distribution
+  createdAt   DateTime @default(now()) @map("created_at")
+  updatedAt   DateTime @updatedAt @map("updated_at")
+
+  groups LeadGroup[]
+  leads  Lead[]
+
+  @@map("lead_sources")
+}
+
+// Nhóm (Group) - cấp con thuộc 1 Nguồn. MANAGER+ CRUD.
+// skipPool tri-state: null = theo Nguồn cha; true = bỏ qua pool; false = ép vào pool. Hiệu lực = group.skipPool ?? source.skipPool.
+model LeadGroup {
+  id          BigInt   @id @default(autoincrement())
+  name        String
+  description String?
+  sourceId    BigInt   @map("source_id")
+  isActive    Boolean  @default(true) @map("is_active")
+  skipPool    Boolean? @map("skip_pool") /// null = kế thừa Nguồn cha; true = skip pool; false = luôn vào pool
+  createdAt   DateTime @default(now()) @map("created_at")
+  updatedAt   DateTime @updatedAt @map("updated_at")
+
+  source LeadSource @relation(fields: [sourceId], references: [id])
+  leads  Lead[]
+
+  @@index([sourceId])
+  @@map("lead_groups")
+}
+
+// ─── PRODUCT, ORDER, PAYMENT ────────────────────────────────────────────────
+
+model ProductCategory {
+  id          BigInt   @id @default(autoincrement())
+  name        String
+  description String?
+  isActive    Boolean  @default(true) @map("is_active")
+  createdAt   DateTime @default(now()) @map("created_at")
+  updatedAt   DateTime @updatedAt @map("updated_at")
+
+  products         Product[]
+  larkSyncMappings LarkSyncMapping[]
+
+  @@map("product_categories")
+}
+
+/// Duong ong day payment sang Lark Base (config-driven, doc lap voi san pham).
+/// Don hang chon truc tiep duong ong nay (order.larkSyncId) de quyet dinh bang Lark dich.
+/// baseToken null => dung LARK_BASE_TOKEN env. categoryId chi giu lai cho du lieu cu (legacy).
+model LarkSyncMapping {
+  id         BigInt   @id @default(autoincrement())
+  name       String /// Ten hien thi duong ong (vd: "Kenh Ban le")
+  categoryId BigInt?  @map("category_id") /// Legacy - khong con dung de route, giu de tra cuu lich su
+  baseToken  String?  @map("base_token") /// null = base mac dinh (.env)
+  tableId    String   @map("table_id") /// Lark tableId dich
+  fieldMap   Json     @map("field_map") /// { "Cot Lark": "catalogKey" }
+  enabled    Boolean  @default(true)
+  createdAt  DateTime @default(now()) @map("created_at")
+  updatedAt  DateTime @updatedAt @map("updated_at")
+
+  category ProductCategory? @relation(fields: [categoryId], references: [id])
+  orders   Order[]
+  payments Payment[]
+  refunds  Refund[]
+
+  @@map("lark_sync_mappings")
+}
+
+/// Nhat ky dong bo payment -> Lark (1 dong/payment, luu ket qua moi nhat).
+/// Moi lan worker chay xong upsert theo paymentId -> dong cuoi = ket qua cuoi cung.
+/// Khong FK cung toi payment/mapping de giu lich su ke ca khi mapping bi xoa.
+/// Cron don dinh ky log cu hon 30 ngay (xem LarkSyncHistoryService).
+model LarkSyncLog {
+  id             BigInt   @id @default(autoincrement())
+  paymentId      BigInt   @unique @map("payment_id") /// 1 dong/payment - upsert ket qua cuoi
+  orderId        BigInt?  @map("order_id") /// snapshot de tim theo ma don
+  mappingId      BigInt?  @map("mapping_id") /// tham chieu mem (mapping co the bi xoa)
+  channelName    String   @map("channel_name") /// snapshot ten kenh Lark luc sync
+  tableId        String?  @map("table_id") /// snapshot tableId dich
+  status         String /// SUCCESS | FAILED
+  requestPayload Json?    @map("request_payload") /// fields gui len Lark
+  larkResponse   Json?    @map("lark_response") /// response Lark tra ve (hoac error detail)
+  larkRecordId   String?  @map("lark_record_id")
+  errorMessage   String?  @map("error_message")
+  syncedAt       DateTime @default(now()) @map("synced_at") /// moc ket qua - dung sort + cleanup
+  createdAt      DateTime @default(now()) @map("created_at")
+  updatedAt      DateTime @updatedAt @map("updated_at")
+
+  @@index([syncedAt])
+  @@index([status])
+  @@map("lark_sync_logs")
+}
+
+model Product {
+  id          BigInt    @id @default(autoincrement())
+  name        String
+  price       Decimal   @db.Decimal(12, 2)
+  description String?
+  categoryId  BigInt?   @map("category_id") /// Legacy - khong con dung tren UI
+  isCombo     Boolean   @default(false) @map("is_combo") /// SP gom nhieu SP con
+  vatRate     Decimal   @default(0) @map("vat_rate") @db.Decimal(5, 2)
+  isActive    Boolean   @default(true) @map("is_active")
+  createdAt   DateTime  @default(now()) @map("created_at")
+  updatedAt   DateTime  @updatedAt @map("updated_at")
+  deletedAt   DateTime? @map("deleted_at")
+
+  category   ProductCategory? @relation(fields: [categoryId], references: [id])
+  leads      Lead[]
+  orders     Order[]
+  comboItems ComboItem[]      @relation("ComboParent") /// Cac SP con khi day la combo
+  inCombos   ComboItem[]      @relation("ComboChild") /// Cac combo chua SP nay
+
+  @@index([categoryId])
+  @@index([isCombo])
+  @@map("products")
+}
+
+/// Lien ket combo (SP cha) voi cac SP con. Khong luu so luong (theo yeu cau nghiep vu).
+model ComboItem {
+  id        BigInt @id @default(autoincrement())
+  comboId   BigInt @map("combo_id")
+  productId BigInt @map("product_id")
+
+  combo Product @relation("ComboParent", fields: [comboId], references: [id], onDelete: Cascade)
+  child Product @relation("ComboChild", fields: [productId], references: [id])
+
+  @@unique([comboId, productId])
+  @@index([productId])
+  @@map("combo_items")
+}
+
+model Order {
+  id             BigInt      @id @default(autoincrement())
+  leadId         BigInt?     @map("lead_id")
+  customerId     BigInt      @map("customer_id")
+  productId      BigInt?     @map("product_id")
+  amount         Decimal     @db.Decimal(12, 2)
+  quantity       Int         @default(1) /// So luong san pham (mac dinh 1). totalAmount = amount * quantity
+  vatRate        Decimal     @map("vat_rate") @db.Decimal(5, 2)
+  vatAmount      Decimal     @map("vat_amount") @db.Decimal(12, 2)
+  totalAmount    Decimal     @map("total_amount") @db.Decimal(12, 2)
+  status         OrderStatus @default(PENDING)
+  companyName    String?     @map("company_name") /// Tên công ty
+  taxCode        String?     @map("tax_code") /// Mã số thuế
+  contactPerson  String?     @map("contact_person") /// Người liên hệ
+  customerName   String?     @map("customer_name") /// Tên khách
+  customerPhone  String?     @map("customer_phone") /// SĐT khách
+  address        String? /// Địa chỉ
+  vatEmail       String?     @map("vat_email") /// Mail nhận VAT
+  format         String? /// Legacy - prefer formatId
+  formatId       BigInt?     @map("format_id") /// Hình thức (lookup)
+  groupType      String?     @map("group_type") /// Legacy - prefer productGroupId
+  productGroupId BigInt?     @map("product_group_id") /// Nhóm sản phẩm (lookup)
+  stt            String? /// STT (thay thế buổi)
+  courseCode     String?     @map("course_code") /// Mã khoá
+  larkSyncId     BigInt?     @map("lark_sync_id") /// Duong ong Lark dich (do nhan vien chon khi tao don)
+  notes          String?
+  createdBy      BigInt      @map("created_by")
+  createdAt      DateTime    @default(now()) @map("created_at")
+  updatedAt      DateTime    @updatedAt @map("updated_at")
+  deletedAt      DateTime?   @map("deleted_at")
+
+  lead            Lead?            @relation(fields: [leadId], references: [id])
+  customer        Customer         @relation(fields: [customerId], references: [id])
+  product         Product?         @relation(fields: [productId], references: [id])
+  creator         User             @relation("OrderCreator", fields: [createdBy], references: [id])
+  orderFormat     OrderFormat?     @relation(fields: [formatId], references: [id])
+  productGroup    ProductGroup?    @relation(fields: [productGroupId], references: [id])
+  larkSyncMapping LarkSyncMapping? @relation(fields: [larkSyncId], references: [id])
+
+  payments Payment[]
+
+  @@index([leadId])
+  @@index([customerId])
+  @@index([createdBy])
+  @@index([larkSyncId])
+  @@map("orders")
+}
+
+/// Bảng hoàn tiền nhập tay - sale tự ghi 1 dòng cho mỗi lần hoàn tiền khách.
+/// Độc lập, không FK tới order/customer (mọi cột gõ tay). Self-scope theo createdBy.
+model Refund {
+  id            BigInt    @id @default(autoincrement())
+  customerName  String?   @map("customer_name") /// Tên khách
+  customerPhone String?   @map("customer_phone") /// SĐT
+  productId     BigInt?   @map("product_id") /// Sản phẩm chọn từ hệ thống (nullable cho dòng cũ gõ tay)
+  productName   String?   @map("product_name") /// Snapshot tên SP lúc tạo (dòng cũ = gõ tay)
+  productPrice  Decimal?  @map("product_price") @db.Decimal(12, 2) /// Snapshot giá SP = doanh thu về công ty (gồm VAT)
+  vatRate       Decimal?  @map("vat_rate") @db.Decimal(5, 2) /// Snapshot %VAT của SP; tiền VAT = price*vat/(100+vat)
+  groupName     String?   @map("group_name") /// Nhóm
+  teamName      String?   @map("team_name") /// Team
+  refundDate    DateTime? @map("refund_date") /// Ngày hoàn tiền
+  amount        Decimal   @db.Decimal(12, 2) /// Số tiền hoàn trả khách
+  refundMethod  String?   @map("refund_method") /// Hình thức hoàn: CK / TM
+  refundBank    String?   @map("refund_bank") /// Ngân hàng hoàn
+  billImage     String?   @map("bill_image") /// Duong dan anh bill thanh toan (relative path tu uploads/)
+  notes         String? /// Ghi chú
+  createdBy     BigInt    @map("created_by") /// Nhân viên điền (chủ sở hữu dòng)
+  larkSyncId    BigInt?   @map("lark_sync_id") /// Đường ống Lark đổ dòng hoàn tiền (null = không đổ)
+  larkRecordId  String?   @map("lark_record_id") /// Record id bên Lark sau khi đổ (dùng update/chống trùng)
+  larkSyncedAt  DateTime? @map("lark_synced_at") /// Mốc đổ Lark thành công gần nhất
+  createdAt     DateTime  @default(now()) @map("created_at")
+  updatedAt     DateTime  @updatedAt @map("updated_at")
+  deletedAt     DateTime? @map("deleted_at")
+
+  creator  User             @relation("RefundCreator", fields: [createdBy], references: [id])
+  larkSync LarkSyncMapping? @relation(fields: [larkSyncId], references: [id])
+
+  @@index([createdBy])
+  @@index([larkSyncId])
+  @@map("refunds")
+}
+
+model Payment {
+  id              BigInt          @id @default(autoincrement())
+  orderId         BigInt          @map("order_id")
+  paymentTypeId   BigInt?         @map("payment_type_id")
+  bankAccountId   BigInt?         @map("bank_account_id")
+  installmentId   BigInt?         @map("installment_id")
+  amount          Decimal         @db.Decimal(12, 2)
+  vatAmount       Decimal?        @map("vat_amount") @db.Decimal(12, 2)
+  status          PaymentStatus   @default(PENDING)
+  statusReason    String?         @map("status_reason") /// Lý do (tuỳ chọn) khi reject/cancel - hiện kèm trong thông báo cho người tạo đơn
+  transferContent String?         @map("transfer_content")
+  transferDate    DateTime?       @map("transfer_date")
+  verifiedSource  VerifiedSource? @map("verified_source")
+  verifiedBy      BigInt?         @map("verified_by")
+  verifiedAt      DateTime?       @map("verified_at")
+  notes           String?
+  completionRate  Decimal?        @map("completion_rate") @db.Decimal(5, 2)
+  larkSyncedAt    DateTime?       @map("lark_synced_at") /// Moc da day thanh cong sang Lark Base
+  larkRecordId    String?         @map("lark_record_id") /// Id record ben Lark Base
+  dedupKey        String?         @map("dedup_key") /// Khoa chong trung khi import (SHA1 cua SDT+SP+tien+ngayCK+noidung). Null = payment tao tay
+  importBatchId   BigInt?         @map("import_batch_id") /// Dot import da tao payment nay. Null = payment tao tay
+  larkSyncId      BigInt?         @map("lark_sync_id") /// Bang Lark rieng cho payment; null = dung bang cua don
+  createdBy       BigInt?         @map("created_by") /// Nguoi bam tao payment. Null = payment cu / import / webhook. USER tu sua-huy payment PENDING cua chinh minh dua vao cot nay.
+  createdAt       DateTime        @default(now()) @map("created_at")
+  updatedAt       DateTime        @updatedAt @map("updated_at")
+
+  order              Order               @relation(fields: [orderId], references: [id])
+  paymentType        PaymentType?        @relation(fields: [paymentTypeId], references: [id])
+  bankAccount        BankAccount?        @relation(fields: [bankAccountId], references: [id])
+  installment        PaymentInstallment? @relation(fields: [installmentId], references: [id])
+  verifier           User?               @relation("PaymentVerifier", fields: [verifiedBy], references: [id])
+  creator            User?               @relation("PaymentCreator", fields: [createdBy], references: [id])
+  matchedTransaction BankTransaction?
+  importBatch        PaymentImportBatch? @relation(fields: [importBatchId], references: [id])
+  larkSyncMapping    LarkSyncMapping?    @relation(fields: [larkSyncId], references: [id])
+
+  @@index([orderId])
+  @@index([importBatchId])
+  @@index([createdBy])
+  @@index([larkSyncId])
+  // Đối soát lọc theo transferDate + loại CANCELLED; index hỗ trợ query khoảng ngày.
+  @@index([status, transferDate])
+  @@map("payments")
+}
+
+/// Lich su import don hang/payment tu file CSV/Excel (POST /payments/import).
+/// 1 dong = 1 lan bam "Xac nhan" ghi that (dryRun khong ghi). Luu so lieu tong hop
+/// + danh sach loi tung dong (JSONB) de doi chieu lai sau nay.
+model PaymentImportBatch {
+  id           BigInt   @id @default(autoincrement())
+  fileName     String   @map("file_name")
+  totalRows    Int      @default(0) @map("total_rows")
+  createdCount Int      @default(0) @map("created_count") /// So payment tao thanh cong
+  newOrders    Int      @default(0) @map("new_orders")
+  newCustomers Int      @default(0) @map("new_customers")
+  errorCount   Int      @default(0) @map("error_count")
+  /// Danh sach loi [{row, phone, reason}] - toi da vai tram dong nen JSONB du dung
+  errors       Json?
+  createdBy    BigInt   @map("created_by")
+  createdAt    DateTime @default(now()) @map("created_at")
+
+  uploader User      @relation("PaymentImportUploader", fields: [createdBy], references: [id])
+  payments Payment[]
+
+  @@index([createdBy])
+  @@map("payment_import_batches")
+}
+
+model PaymentType {
+  id          BigInt   @id @default(autoincrement())
+  name        String
+  description String?
+  isActive    Boolean  @default(true) @map("is_active")
+  createdAt   DateTime @default(now()) @map("created_at")
+  updatedAt   DateTime @updatedAt @map("updated_at")
+
+  payments Payment[]
+
+  @@map("payment_types")
+}
+
+model BankAccount {
+  id            BigInt               @id @default(autoincrement())
+  name          String               /// Tên hiển thị/gợi nhớ - khóa đối chiếu giao dịch ngân hàng & dashboard, GIỮ NGUYÊN
+  accountNumber String?              @map("account_number") /// Số tài khoản
+  bankName      String?              @map("bank_name") /// Ngân hàng: ACB, VIB, VCB...
+  accountHolder String?              @map("account_holder") /// Tên chủ tài khoản
+  direction     BankAccountDirection @default(THU) /// THU = nhận tiền, CHI = chi tiền
+  label         String? /// Nhãn/mô tả tự do
+  labelColor    String?              @map("label_color") /// Mã màu hex cho badge nhãn
+  isActive      Boolean              @default(true) @map("is_active")
+  createdAt     DateTime             @default(now()) @map("created_at")
+  updatedAt     DateTime             @updatedAt @map("updated_at")
+
+  payments Payment[]
+
+  @@map("bank_accounts")
+}
+
+model BankTransaction {
+  id               BigInt      @id @default(autoincrement())
+  externalId       String      @unique @map("external_id")
+  amount           Decimal     @db.Decimal(12, 2)
+  content          String
+  bankAccount      String?     @map("bank_account")
+  senderName       String?     @map("sender_name")
+  senderAccount    String?     @map("sender_account")
+  transactionTime  DateTime    @map("transaction_time")
+  matchedPaymentId BigInt?     @unique @map("matched_payment_id")
+  matchStatus      MatchStatus @default(UNMATCHED) @map("match_status")
+  matchScore       Int?        @map("match_score")
+  matchReasons     Json?       @map("match_reasons")
+  rawData          Json?       @map("raw_data")
+  createdAt        DateTime    @default(now()) @map("created_at")
+
+  matchedPayment Payment? @relation(fields: [matchedPaymentId], references: [id])
+
+  @@index([matchStatus, createdAt])
+  @@index([amount, transactionTime])
+  @@index([matchStatus, matchScore])
+  @@map("bank_transactions")
+}
+
+/// Tiền dư: giao dịch ngân hàng KHÔNG phải bán hàng (bạn bè trả nợ, hoàn tiền...)
+/// hoặc Sale chưa nhập. Admin đánh dấu tay khi đối soát. Bảng thuần lưu trữ,
+/// KHÔNG liên kết CRM. externalId giữ trace + chống import trùng lại.
+model SurplusTransaction {
+  id              BigInt   @id @default(autoincrement())
+  externalId      String   @unique @map("external_id")
+  amount          Decimal  @db.Decimal(12, 2)
+  content         String
+  senderName      String?  @map("sender_name")
+  senderAccount   String?  @map("sender_account")
+  transactionTime DateTime @map("transaction_time")
+  note            String? /// Lý do admin ghi (vd: bạn bè trả nợ)
+  markedBy        BigInt   @map("marked_by") /// userId người đánh dấu
+  markedAt        DateTime @default(now()) @map("marked_at")
+
+  @@index([markedAt])
+  @@map("surplus_transactions")
+}
+
+/// Lịch sử 1 lần đối soát sao kê. Chỉ lưu bản tóm tắt nhẹ (range + counts +
+/// tổng tiền) để audit + mở lại "chạy lại". Chi tiết ghép cặp tính lại từ
+/// bank_transactions/payments sống, KHÔNG snapshot.
+model ReconciliationRun {
+  id       BigInt   @id @default(autoincrement())
+  fromDate DateTime @map("from_date")
+  toDate   DateTime @map("to_date")
+  runBy    BigInt   @map("run_by") /// userId người chạy
+  runAt    DateTime @default(now()) @map("run_at")
+  summary  Json /// result.summary: saleCount, bankCount, matchedCount, tổng tiền...
+
+  @@index([runAt])
+  @@map("reconciliation_runs")
+}
+
+model OrderFormat {
+  id        BigInt   @id @default(autoincrement())
+  name      String /// VD: Zoom Replay, Zoom Live, Zoom Khách cũ
+  isActive  Boolean  @default(true) @map("is_active")
+  createdAt DateTime @default(now()) @map("created_at")
+  updatedAt DateTime @updatedAt @map("updated_at")
+
+  orders Order[]
+
+  @@map("order_formats")
+}
+
+model ProductGroup {
+  id        BigInt   @id @default(autoincrement())
+  name      String /// Nhóm sản phẩm: Online, Tool, Offline
+  isActive  Boolean  @default(true) @map("is_active")
+  createdAt DateTime @default(now()) @map("created_at")
+  updatedAt DateTime @updatedAt @map("updated_at")
+
+  orders Order[]
+
+  @@map("product_groups")
+}
+
+model PaymentInstallment {
+  id        BigInt   @id @default(autoincrement())
+  name      String /// VD: CK lần 1, CK lần 2, CK Full
+  isActive  Boolean  @default(true) @map("is_active")
+  createdAt DateTime @default(now()) @map("created_at")
+  updatedAt DateTime @updatedAt @map("updated_at")
+
+  payments Payment[]
+
+  @@map("payment_installments")
+}
+
+// ─── LABELS ─────────────────────────────────────────────────────────────────
+
+model Label {
+  id            BigInt   @id @default(autoincrement())
+  name          String
+  color         String   @default("#6b7280")
+  textColor     String   @default("#ffffff") @map("text_color")
+  category      String?
+  triggersOrder Boolean  @default(false) @map("triggers_order")
+  isActive      Boolean  @default(true) @map("is_active")
+  createdAt     DateTime @default(now()) @map("created_at")
+  updatedAt     DateTime @updatedAt @map("updated_at")
+
+  leads             Lead[]
+  customerLabels    CustomerLabel[]
+  departmentLabels  DepartmentLabel[]
+  recallConfig      LabelRecallConfig?
+  recallAutoConfigs RecallConfig[]     @relation("recall_auto")
+
+  @@map("labels")
+}
+
+model CustomerLabel {
+  customerId BigInt   @map("customer_id")
+  labelId    BigInt   @map("label_id")
+  createdAt  DateTime @default(now()) @map("created_at")
+
+  customer Customer @relation(fields: [customerId], references: [id])
+  label    Label    @relation(fields: [labelId], references: [id])
+
+  @@id([customerId, labelId])
+  @@index([labelId])
+  @@map("customer_labels")
+}
+
+/// Trường tùy chỉnh cho lead do SUPER_ADMIN định nghĩa. Giá trị lưu trong
+/// leads.metadata JSONB dưới key này (không thêm cột thật). type hiện chỉ có
+/// 'text' - giữ cột để mở rộng kiểu khác sau. Xóa = deactivate (isActive=false),
+/// giá trị cũ vẫn nằm trong metadata, chỉ không render nữa. key bất biến sau
+/// khi tạo (đổi key sẽ mồ côi dữ liệu cũ trong JSONB).
+model LeadFieldDefinition {
+  id        BigInt   @id @default(autoincrement())
+  key       String   @unique
+  label     String
+  type      String   @default("text")
+  isActive  Boolean  @default(true) @map("is_active")
+  sortOrder Int      @default(0) @map("sort_order")
+  createdAt DateTime @default(now()) @map("created_at")
+  updatedAt DateTime @updatedAt @map("updated_at")
+
+  @@map("lead_field_definitions")
+}
+
+/// Bố cục bảng leads cố định theo phòng ban. config JSONB shape
+/// { visible: Record<string, boolean>, order: string[] } - khớp shape localStorage
+/// v3 của use-column-prefs (trừ width). Chỉ khóa visibility + order cho USER/LEADER;
+/// width + typography vẫn là pref cá nhân. Phòng ban không có config = tự do như cũ.
+model DepartmentViewConfig {
+  id           BigInt   @id @default(autoincrement())
+  departmentId BigInt   @unique @map("department_id")
+  config       Json
+  createdAt    DateTime @default(now()) @map("created_at")
+  updatedAt    DateTime @updatedAt @map("updated_at")
+
+  department Department @relation(fields: [departmentId], references: [id], onDelete: Cascade)
+
+  @@map("department_view_configs")
+}
+
+/// Nhãn hiển thị theo phòng ban (chỉ áp cho LIST/quick-filter, KHÔNG áp cho picker).
+/// Phòng ban không có dòng nào = fallback thấy TẤT CẢ nhãn. Display-config thuần túy,
+/// không phải access control - buildAccessFilter không liên quan.
+model DepartmentLabel {
+  departmentId BigInt   @map("department_id")
+  labelId      BigInt   @map("label_id")
+  createdAt    DateTime @default(now()) @map("created_at")
+
+  department Department @relation(fields: [departmentId], references: [id], onDelete: Cascade)
+  label      Label      @relation(fields: [labelId], references: [id], onDelete: Cascade)
+
+  @@id([departmentId, labelId])
+  @@index([labelId])
+  @@map("department_labels")
+}
+
+// ─── ACTIVITY & DOCUMENTS ───────────────────────────────────────────────────
+
+model Activity {
+  id         BigInt       @id @default(autoincrement())
+  entityType EntityType   @map("entity_type")
+  entityId   BigInt       @map("entity_id")
+  userId     BigInt       @map("user_id")
+  type       ActivityType
+  content    String?
+  metadata   Json?
+  isPinned   Boolean      @default(false) @map("is_pinned") /// Ghim note quan trọng lên Tổng quan
+  createdAt  DateTime     @default(now()) @map("created_at")
+  deletedAt  DateTime?    @map("deleted_at")
+
+  user        User                 @relation(fields: [userId], references: [id])
+  attachments ActivityAttachment[]
+
+  @@index([entityType, entityId, createdAt])
+  @@index([userId, createdAt])
+  @@index([entityType, entityId, isPinned])
+  @@map("activities")
+}
+
+model ActivityAttachment {
+  id         BigInt   @id @default(autoincrement())
+  activityId BigInt   @map("activity_id")
+  fileName   String   @map("file_name")
+  fileUrl    String   @map("file_url")
+  fileType   String   @map("file_type")
+  fileSize   Int      @map("file_size")
+  createdAt  DateTime @default(now()) @map("created_at")
+
+  activity Activity @relation(fields: [activityId], references: [id])
+
+  @@index([activityId])
+  @@map("activity_attachments")
+}
+
+model Document {
+  id          BigInt     @id @default(autoincrement())
+  entityType  EntityType @map("entity_type")
+  entityId    BigInt     @map("entity_id")
+  uploadedBy  BigInt     @map("uploaded_by")
+  fileName    String     @map("file_name")
+  fileUrl     String     @map("file_url")
+  fileType    String     @map("file_type")
+  fileSize    Int        @map("file_size")
+  description String?
+  createdAt   DateTime   @default(now()) @map("created_at")
+  deletedAt   DateTime?  @map("deleted_at")
+
+  uploader User @relation(fields: [uploadedBy], references: [id])
+
+  @@index([entityType, entityId, createdAt])
+  @@map("documents")
+}
+
+// ─── CALL LOGS ──────────────────────────────────────────────────────────────
+
+// Webhook endpoints - dynamic URL + secret cho 3rd party webhook (OmiCall, future providers).
+// User tao trong UI Settings > Webhooks. Slug + secret tu generate, secret chi hien 1 lan.
+model WebhookEndpoint {
+  id              BigInt    @id @default(autoincrement())
+  name            String                                  // User dat: "OmiCall Production"
+  slug            String    @unique                       // Random 8-char, trong URL
+  secretHash      String    @map("secret_hash")           // SHA-256 hash cua secret
+  secretPrefix    String    @map("secret_prefix")         // Vd "wh_a1b2..." de hien preview
+  isActive        Boolean   @default(true) @map("is_active")
+  lastTriggeredAt DateTime? @map("last_triggered_at")
+  triggerCount    Int       @default(0) @map("trigger_count")
+  createdBy       BigInt    @map("created_by")
+  createdAt       DateTime  @default(now()) @map("created_at")
+  deletedAt       DateTime? @map("deleted_at")
+
+  creator User @relation("WebhookEndpointCreator", fields: [createdBy], references: [id])
+
+  @@index([slug, isActive])
+  @@map("webhook_endpoints")
+}
+
+model CallLog {
+  id                BigInt      @id @default(autoincrement())
+  // externalId: partial unique (WHERE deleted_at IS NULL) trong raw-indexes.sql
+  // Cho phép ingest lại call_log nếu row cũ đã soft-delete
+  externalId        String      @map("external_id")
+  phoneNumber       String      @map("phone_number")
+  callType          CallType    @map("call_type")
+  callTime          DateTime    @map("call_time")
+  duration          Int         @default(0)
+  content           String?
+  analysis          String?     @map("analysis")
+  matchedEntityType EntityType? @map("matched_entity_type")
+  matchedEntityId   BigInt?     @map("matched_entity_id")
+  matchedUserId     BigInt?     @map("matched_user_id")
+  matchStatus       MatchStatus @default(UNMATCHED) @map("match_status")
+  verifiedBy        BigInt?     @map("verified_by")
+  // OmiCall webhook fields (2026-06-04)
+  recordingUrl      String?     @map("recording_url")
+  hangupCause       String?     @map("hangup_cause") @db.VarChar(64)
+  disposition       String?     @map("disposition") @db.VarChar(32)
+  endbyName         String?     @map("endby_name") @db.VarChar(64)
+  omicallUserId     String?     @map("omicall_user_id") @db.VarChar(64)
+  createdAt         DateTime    @default(now()) @map("created_at")
+  deletedAt         DateTime?   @map("deleted_at")
+
+  feedbacks CallFeedback[]
+
+  @@index([phoneNumber, callTime])
+  @@index([matchedEntityType, matchedEntityId, callTime])
+  @@map("call_logs")
+}
+
+// Feedback (gop y) cua LEADER+ ve 1 cuoc goi. 1 cuoc goi co N feedback.
+// LEADER chi feedback cuoc goi cua team minh; MANAGER+ feedback moi cuoc.
+model CallFeedback {
+  id        BigInt    @id @default(autoincrement())
+  callLogId BigInt    @map("call_log_id")
+  authorId  BigInt    @map("author_id")
+  content   String
+  createdAt DateTime  @default(now()) @map("created_at")
+  updatedAt DateTime  @updatedAt @map("updated_at")
+  deletedAt DateTime? @map("deleted_at")
+
+  callLog CallLog @relation(fields: [callLogId], references: [id])
+  author  User    @relation("CallFeedbackAuthor", fields: [authorId], references: [id])
+
+  @@index([callLogId, createdAt])
+  @@map("call_feedbacks")
+}
+
+// ─── ASSIGNMENT ─────────────────────────────────────────────────────────────
+
+model AssignmentHistory {
+  id               BigInt     @id @default(autoincrement())
+  entityType       EntityType @map("entity_type")
+  entityId         BigInt     @map("entity_id")
+  fromUserId       BigInt?    @map("from_user_id")
+  toUserId         BigInt?    @map("to_user_id")
+  fromDepartmentId BigInt?    @map("from_department_id")
+  toDepartmentId   BigInt?    @map("to_department_id")
+  assignedBy       BigInt     @map("assigned_by")
+  reason           String?
+  createdAt        DateTime   @default(now()) @map("created_at")
+
+  fromUser       User?       @relation("AssignmentFromUser", fields: [fromUserId], references: [id])
+  toUser         User?       @relation("AssignmentToUser", fields: [toUserId], references: [id])
+  assignedByUser User        @relation("AssignmentByUser", fields: [assignedBy], references: [id])
+  fromDepartment Department? @relation("AssignmentFromDept", fields: [fromDepartmentId], references: [id])
+  toDepartment   Department? @relation("AssignmentToDept", fields: [toDepartmentId], references: [id])
+
+  @@index([entityType, entityId, createdAt])
+  @@map("assignment_history")
+}
+
+model AssignmentTemplate {
+  id        BigInt   @id @default(autoincrement())
+  name      String
+  strategy  String   @default("ROUND_ROBIN")
+  isActive  Boolean  @default(true) @map("is_active")
+  createdBy BigInt   @map("created_by")
+  createdAt DateTime @default(now()) @map("created_at")
+  updatedAt DateTime @updatedAt @map("updated_at")
+
+  creator User                       @relation(fields: [createdBy], references: [id])
+  members AssignmentTemplateMember[]
+
+  @@map("assignment_templates")
+}
+
+model AssignmentTemplateMember {
+  templateId BigInt @map("template_id")
+  userId     BigInt @map("user_id")
+
+  template AssignmentTemplate @relation(fields: [templateId], references: [id])
+  user     User               @relation(fields: [userId], references: [id])
+
+  @@id([templateId, userId])
+  @@map("assignment_template_members")
+}
+
+// ─── AI DISTRIBUTION ────────────────────────────────────────────────────────
+
+model AiDistributionConfig {
+  id               BigInt   @id @default(autoincrement())
+  departmentId     BigInt   @unique @map("department_id")
+  isActive         Boolean  @default(true) @map("is_active")
+  matchingCriteria Json?    @map("matching_criteria")
+  weightConfig     Json?    @map("weight_config")
+  createdAt        DateTime @default(now()) @map("created_at")
+  updatedAt        DateTime @updatedAt @map("updated_at")
+
+  department Department @relation(fields: [departmentId], references: [id])
+
+  @@map("ai_distribution_configs")
+}
+
+// ─── RECALL CONFIG ──────────────────────────────────────────────────────────
+
+model RecallConfig {
+  id            BigInt   @id @default(autoincrement())
+  entityType    String   @map("entity_type")
+  maxDaysInPool Int      @map("max_days_in_pool")
+  autoLabelId   BigInt?  @map("auto_label_id")
+  isActive      Boolean  @default(true) @map("is_active")
+  createdBy     BigInt   @map("created_by")
+  createdAt     DateTime @default(now()) @map("created_at")
+  updatedAt     DateTime @updatedAt @map("updated_at")
+
+  creator   User   @relation(fields: [createdBy], references: [id])
+  autoLabel Label? @relation("recall_auto", fields: [autoLabelId], references: [id])
+
+  @@map("recall_configs")
+}
+
+model LabelRecallConfig {
+  id            BigInt   @id @default(autoincrement())
+  labelId       BigInt   @unique @map("label_id")
+  // Stored in minutes (was previously stored in days). UI exposes a unit
+  // selector (min/hour/day) but the API and DB always normalize to minutes.
+  recallMinutes Int      @map("recall_minutes")
+  // What happens when a lead with this label passes the window:
+  // RECALL = pull lead back to POOL, NOTIFY = only notify the assigned user.
+  // "Nothing" mode = no config row at all (kept as the absent-row semantics).
+  action        String   @default("RECALL")
+  isActive      Boolean  @default(true) @map("is_active")
+  createdBy     BigInt   @map("created_by")
+  createdAt     DateTime @default(now()) @map("created_at")
+  updatedAt     DateTime @updatedAt @map("updated_at")
+
+  label   Label @relation(fields: [labelId], references: [id])
+  creator User  @relation(fields: [createdBy], references: [id])
+
+  @@map("label_recall_configs")
+}
+
+// ─── TASKS / TODO ───────────────────────────────────────────────────────────
+
+model Task {
+  id            BigInt       @id @default(autoincrement())
+  title         String
+  description   String?
+  entityType    EntityType?  @map("entity_type")
+  entityId      BigInt?      @map("entity_id")
+  assignedTo    BigInt       @map("assigned_to")
+  createdBy     BigInt       @map("created_by")
+  dueDate       DateTime?    @map("due_date")
+  escalation1At DateTime?    @map("escalation_1_at")
+  escalation2At DateTime?    @map("escalation_2_at")
+  status        TaskStatus   @default(PENDING)
+  priority      TaskPriority @default(MEDIUM)
+  completedAt   DateTime?    @map("completed_at")
+  createdAt     DateTime     @default(now()) @map("created_at")
+  updatedAt     DateTime     @updatedAt @map("updated_at")
+  deletedAt     DateTime?    @map("deleted_at")
+
+  assignee  User           @relation("TaskAssignee", fields: [assignedTo], references: [id])
+  creator   User           @relation("TaskCreator", fields: [createdBy], references: [id])
+  reminders TaskReminder[]
+
+  @@index([assignedTo, status, dueDate])
+  @@map("tasks")
+}
+
+model TaskReminder {
+  id         BigInt    @id @default(autoincrement())
+  taskId     BigInt    @map("task_id")
+  remindAt   DateTime  @map("remind_at")
+  label      String?   @db.VarChar(50)
+  remindedAt DateTime? @map("reminded_at")
+  createdAt  DateTime  @default(now()) @map("created_at")
+
+  task Task @relation(fields: [taskId], references: [id], onDelete: Cascade)
+
+  @@index([remindAt, remindedAt])
+  @@index([taskId])
+  @@map("task_reminders")
+}
+
+// ─── AUTH ────────────────────────────────────────────────────────────────────
+
+model RefreshToken {
+  id        BigInt    @id @default(autoincrement())
+  userId    BigInt    @map("user_id")
+  tokenHash String    @map("token_hash")
+  userAgent String?   @map("user_agent")
+  ipAddress String?   @map("ip_address")
+  expiresAt DateTime  @map("expires_at")
+  revokedAt DateTime? @map("revoked_at")
+  createdAt DateTime  @default(now()) @map("created_at")
+
+  user User @relation(fields: [userId], references: [id])
+
+  @@index([tokenHash])
+  @@index([userId])
+  @@map("refresh_tokens")
+}
+
+model ApiKey {
+  id          BigInt    @id @default(autoincrement())
+  name        String
+  keyHash     String    @unique @map("key_hash")
+  keyPrefix   String    @map("key_prefix")
+  permissions String[]  @default(["leads:create"])
+  isActive    Boolean   @default(true) @map("is_active")
+  lastUsedAt  DateTime? @map("last_used_at")
+  createdBy   BigInt    @map("created_by")
+  createdAt   DateTime  @default(now()) @map("created_at")
+  expiresAt   DateTime? @map("expires_at")
+
+  creator User @relation(fields: [createdBy], references: [id])
+
+  @@map("api_keys")
+}
+
+// ─── NOTIFICATIONS ──────────────────────────────────────────────────────────
+
+model Notification {
+  id         BigInt      @id @default(autoincrement())
+  userId     BigInt      @map("user_id")
+  title      String
+  content    String?
+  type       String      @default("SYSTEM")
+  entityType EntityType? @map("entity_type")
+  entityId   BigInt?     @map("entity_id")
+  isRead     Boolean     @default(false) @map("is_read")
+  createdAt  DateTime    @default(now()) @map("created_at")
+
+  user User @relation(fields: [userId], references: [id])
+
+  @@index([userId, isRead, createdAt])
+  @@map("notifications")
+}
+
+// Web Push subscription: "địa chỉ hộp thư đẩy" của 1 thiết bị mà user cho phép nhận push.
+// 1 user có thể có nhiều thiết bị (laptop + điện thoại) -> nhiều bản ghi.
+// KHÔNG soft-delete: subscription chết (provider trả 404/410 Gone) -> xoá thẳng.
+model PushSubscription {
+  id        BigInt   @id @default(autoincrement())
+  userId    BigInt   @map("user_id")
+  endpoint  String   @unique // địa chỉ hộp thư đẩy của thiết bị (duy nhất)
+  p256dh    String // khoá công khai mã hoá nội dung push
+  auth      String // khoá xác thực
+  userAgent String?  @map("user_agent") // nhận diện thiết bị (tuỳ chọn)
+  createdAt DateTime @default(now()) @map("created_at")
+
+  user User @relation(fields: [userId], references: [id])
+
+  @@index([userId])
+  @@map("push_subscriptions")
+}
+
+// ─── IMPORT JOBS ────────────────────────────────────────────────────────────
+
+model ImportJob {
+  id             BigInt       @id @default(autoincrement())
+  type           String // "leads" | "customers"
+  fileName       String       @map("file_name")
+  fileUrl        String       @map("file_url")
+  status         ImportStatus @default(PENDING_REVIEW)
+  totalRows      Int          @default(0) @map("total_rows")
+  successCount   Int          @default(0) @map("success_count")
+  errorCount     Int          @default(0) @map("error_count")
+  errorFileUrl   String?      @map("error_file_url")
+  /// Dry-run summary { totalRows, validRows, errorRows, sampleErrors[5] }. Populated when status=REVIEWED.
+  previewSummary Json?        @map("preview_summary")
+  reviewedAt     DateTime?    @map("reviewed_at")
+  startedAt      DateTime?    @map("started_at")
+  createdBy      BigInt       @map("created_by")
+  createdAt      DateTime     @default(now()) @map("created_at")
+  completedAt    DateTime?    @map("completed_at")
+
+  user User @relation(fields: [createdBy], references: [id])
+
+  @@map("import_jobs")
+}
+
+// ─── SYSTEM SETTINGS ────────────────────────────────────────────────────────
+
+model SystemSetting {
+  key       String   @id
+  value     String   @db.Text
+  updatedAt DateTime @updatedAt @map("updated_at")
+
+  @@map("system_settings")
+}
+
+// ─── AUDIT & TRACE ──────────────────────────────────────────────────────────
+
+/// Mọi mutation request (POST/PUT/PATCH/DELETE) + login/logout.
+/// Retention 60 ngày qua audit-log-retention cron. Sanitize trước khi insert.
+model AuditLog {
+  id         BigInt   @id @default(autoincrement())
+  userId     BigInt?  @map("user_id")
+  action     String // "LEAD_TRANSFER" | "USER_LOGIN" | ...
+  entityType String?  @map("entity_type") // "LEAD" | "CUSTOMER" | "ORDER" | ...
+  entityId   BigInt?  @map("entity_id")
+  ipAddress  String?  @map("ip_address")
+  userAgent  String?  @map("user_agent")
+  method     String?
+  path       String?
+  statusCode Int?     @map("status_code")
+  metadata   Json?
+  createdAt  DateTime @default(now()) @map("created_at")
+
+  user User? @relation("AuditLogUser", fields: [userId], references: [id])
+
+  @@index([userId, createdAt(sort: Desc)])
+  @@index([action, createdAt(sort: Desc)])
+  @@index([entityType, entityId])
+  @@index([createdAt(sort: Desc)])
+  @@index([ipAddress])
+  @@map("audit_logs")
+}
+
+/// Lịch sử chạy cron job: status RUNNING -> SUCCESS/FAILED, affected count, error stack.
+model CronRun {
+  id         BigInt    @id @default(autoincrement())
+  jobName    String    @map("job_name")
+  startedAt  DateTime  @map("started_at")
+  finishedAt DateTime? @map("finished_at")
+  status     String // "RUNNING" | "SUCCESS" | "FAILED"
+  affected   Int       @default(0)
+  errorMsg   String?   @map("error_msg")
+  metadata   Json?
+  createdAt  DateTime  @default(now()) @map("created_at")
+
+  @@index([jobName, startedAt(sort: Desc)])
+  @@index([status, startedAt(sort: Desc)])
+  @@index([startedAt(sort: Desc)])
+  @@map("cron_runs")
+}
+
+// ─── USER KPI TARGETS (1 row / user / year, 13 cột) ──────────────────────
+
+/// Chỉ tiêu doanh thu KPI cho từng user theo năm.
+/// 1 row / user / year. 13 số: targetYearly (mục tiêu cả năm) + 12 cột tháng.
+/// NULL = chưa set (khác 0). Decimal(14,2) cho VND - tối đa ~999 tỷ.
+model UserKpiTarget {
+  id           BigInt   @id @default(autoincrement())
+  userId       BigInt   @map("user_id")
+  year         Int
+  targetYearly Decimal? @map("target_yearly") @db.Decimal(14, 2)
+  targetJan    Decimal? @map("target_jan")    @db.Decimal(14, 2)
+  targetFeb    Decimal? @map("target_feb")    @db.Decimal(14, 2)
+  targetMar    Decimal? @map("target_mar")    @db.Decimal(14, 2)
+  targetApr    Decimal? @map("target_apr")    @db.Decimal(14, 2)
+  targetMay    Decimal? @map("target_may")    @db.Decimal(14, 2)
+  targetJun    Decimal? @map("target_jun")    @db.Decimal(14, 2)
+  targetJul    Decimal? @map("target_jul")    @db.Decimal(14, 2)
+  targetAug    Decimal? @map("target_aug")    @db.Decimal(14, 2)
+  targetSep    Decimal? @map("target_sep")    @db.Decimal(14, 2)
+  targetOct    Decimal? @map("target_oct")    @db.Decimal(14, 2)
+  targetNov    Decimal? @map("target_nov")    @db.Decimal(14, 2)
+  targetDec    Decimal? @map("target_dec")    @db.Decimal(14, 2)
+  createdAt    DateTime @default(now()) @map("created_at")
+  updatedAt    DateTime @updatedAt @map("updated_at")
+  createdBy    BigInt   @map("created_by")
+
+  user    User @relation("UserKpiTargets", fields: [userId], references: [id], onDelete: Cascade)
+  creator User @relation("UserKpiTargetsCreator", fields: [createdBy], references: [id])
+
+  @@unique([userId, year])
+  @@index([year])
+  @@map("user_kpi_targets")
+}
+

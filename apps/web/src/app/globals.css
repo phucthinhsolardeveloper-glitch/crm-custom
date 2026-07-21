@@ -1,0 +1,449 @@
+@import 'tailwindcss';
+
+/* ── VeloCRM Design Tokens - Sky Blue Primary ───────────────────────────── */
+@theme {
+  /* Primary: Sky 50→900 (xanh nước biển nhạt) */
+  --color-primary-50: #f0f9ff;
+  --color-primary-100: #e0f2fe;
+  --color-primary-200: #bae6fd;
+  --color-primary-300: #7dd3fc;
+  --color-primary-400: #38bdf8;
+  --color-primary-500: #0ea5e9;
+  --color-primary-600: #0284c7;
+  --color-primary-700: #0369a1;
+  --color-primary-800: #075985;
+  --color-primary-900: #0c4a6e;
+
+  /* Accent: Cyan (gradient endpoint) */
+  --color-accent-400: #22d3ee;
+  --color-accent-500: #06b6d4;
+  --color-accent-600: #0891b2;
+
+  /* Status colors */
+  --color-success: #10b981;
+  --color-warning: #f59e0b;
+  --color-danger: #ef4444;
+  --color-info: #0ea5e9;
+  --color-floating: #8b5cf6;
+
+  /* Colored shadows - sky-blue tinted */
+  --shadow-soft: 0 4px 20px -2px rgba(14, 165, 233, 0.1);
+  --shadow-hover: 0 10px 25px -5px rgba(14, 165, 233, 0.15), 0 8px 10px -6px rgba(14, 165, 233, 0.1);
+  --shadow-button: 0 4px 14px 0 rgba(14, 165, 233, 0.3);
+  --shadow-glow: 0 0 20px rgba(14, 165, 233, 0.5);
+
+  /* Font family - default = Plus Jakarta Sans. JS sẽ override `--font-sans` +
+     `--font-weight-base` runtime theo global font preference của user
+     (xem use-global-font-pref.ts).
+     CSS vars `--font-jakarta`, `--font-inter`, `--font-roboto`, `--font-be-vietnam`,
+     `--font-nunito`, `--font-lora` được next/font/google inject vào <html> class.
+     Arial + Times New Roman là web-safe (không cần preload). */
+  --font-sans: var(--font-jakarta), 'Plus Jakarta Sans', ui-sans-serif, system-ui, sans-serif;
+  --font-weight-base: 500;
+}
+
+/* ── Base layer overrides ────────────────────────────────────────────────── */
+@layer base {
+  html {
+    -webkit-font-smoothing: antialiased;
+    -moz-osx-font-smoothing: grayscale;
+  }
+
+  body {
+    font-family: var(--font-sans);
+    font-weight: var(--font-weight-base);
+    background-color: #f8fafc;
+    color: #0f172a;
+  }
+
+  :focus-visible {
+    outline: 2px solid #0ea5e9;
+    outline-offset: 2px;
+  }
+}
+
+/* ── Enter/Exit animation engine (ban rut gon tw-animate-css) ─────────────
+ * Cac component Radix (dialog, dropdown, popover, select, sheet) da khai bao
+ * class animate-in/fade-in-0/zoom-in-95/slide-in-from-*... nhung project chua
+ * co plugin nao dinh nghia chung -> truoc gio khong co animation nao chay.
+ * Co che: animate-in chay @keyframes velo-enter doc CSS vars; cac class fade/
+ * zoom/slide chi set var tuong ung nen compose tu do nhu tw-animate-css. */
+@layer utilities {
+  /* Tailwind v4: class duration-200/300... set var --tw-duration -> animation
+   * tu dong an theo, khong can them class rieng. Fallback 150ms. */
+  .animate-in {
+    animation: velo-enter var(--tw-duration, 150ms) ease-out both;
+  }
+  .animate-out {
+    animation: velo-exit var(--tw-duration, 150ms) ease-in both;
+  }
+  @keyframes velo-enter {
+    from {
+      opacity: var(--tw-enter-opacity, 1);
+      transform: translate3d(var(--tw-enter-translate-x, 0), var(--tw-enter-translate-y, 0), 0)
+        scale3d(var(--tw-enter-scale, 1), var(--tw-enter-scale, 1), 1);
+    }
+  }
+  @keyframes velo-exit {
+    to {
+      opacity: var(--tw-exit-opacity, 1);
+      transform: translate3d(var(--tw-exit-translate-x, 0), var(--tw-exit-translate-y, 0), 0)
+        scale3d(var(--tw-exit-scale, 1), var(--tw-exit-scale, 1), 1);
+    }
+  }
+
+  .fade-in, .fade-in-0 { --tw-enter-opacity: 0; }
+  .fade-out, .fade-out-0 { --tw-exit-opacity: 0; }
+  .zoom-in-95 { --tw-enter-scale: 0.95; }
+  .zoom-out-95 { --tw-exit-scale: 0.95; }
+
+  .slide-in-from-top { --tw-enter-translate-y: -100%; }
+  .slide-in-from-bottom { --tw-enter-translate-y: 100%; }
+  .slide-in-from-left { --tw-enter-translate-x: -100%; }
+  .slide-in-from-right { --tw-enter-translate-x: 100%; }
+  .slide-out-to-top { --tw-exit-translate-y: -100%; }
+  .slide-out-to-bottom { --tw-exit-translate-y: 100%; }
+  .slide-out-to-left { --tw-exit-translate-x: -100%; }
+  .slide-out-to-right { --tw-exit-translate-x: 100%; }
+  /* Suffix so = khoang dich nho theo scale Tailwind: 1=0.25rem, 2=0.5rem, 4=1rem */
+  .slide-in-from-top-2 { --tw-enter-translate-y: -0.5rem; }
+  .slide-in-from-bottom-4 { --tw-enter-translate-y: 1rem; }
+  .slide-in-from-left-1 { --tw-enter-translate-x: -0.25rem; }
+  .slide-out-to-left-1 { --tw-exit-translate-x: -0.25rem; }
+
+  /* Ton trong user tat animation o cap OS (accessibility) */
+  @media (prefers-reduced-motion: reduce) {
+    .animate-in, .animate-out { animation-duration: 1ms; }
+  }
+}
+
+/* ── Utility classes ─────────────────────────────────────────────────────── */
+@layer utilities {
+  /* Gradient text (sky→cyan) */
+  .text-gradient {
+    background: linear-gradient(135deg, #0284c7, #06b6d4);
+    -webkit-background-clip: text;
+    -webkit-text-fill-color: transparent;
+    background-clip: text;
+  }
+
+  /* Primary gradient background */
+  .bg-gradient-primary {
+    background: linear-gradient(135deg, #0ea5e9, #06b6d4);
+  }
+
+  /* Card hover lift */
+  .card-hover {
+    transition: transform 200ms ease-out, box-shadow 200ms ease-out;
+  }
+  .card-hover:hover {
+    transform: translateY(-2px);
+    box-shadow: var(--shadow-hover);
+  }
+
+  /* Hide scrollbar - for mobile scroll-snap containers */
+  .scrollbar-none {
+    -ms-overflow-style: none;
+    scrollbar-width: none;
+  }
+  .scrollbar-none::-webkit-scrollbar {
+    display: none;
+  }
+
+  /* Atmospheric blur orbs */
+  .blur-orb {
+    position: absolute;
+    border-radius: 9999px;
+    filter: blur(64px);
+    pointer-events: none;
+  }
+
+  /* Lead filter "Lọc" button pulse animation.
+   *
+   * Hiển thị khi có pending filter changes (xem lead-filter-apply-button.tsx).
+   * Effect kết hợp:
+   *  - pulse-ring: expanding sky shadow ring 2s loop
+   *  - soft-bounce: nâng nhẹ 2px 1.5s loop
+   *  - gradient sky->cyan: thu hút mắt user, đồng bộ tone CRM primary.
+   *
+   * Đặt ở @layer utilities để có thể override bằng utility class khi cần. */
+  .filter-apply-pulse {
+    background: linear-gradient(135deg, var(--color-primary-500) 0%, var(--color-accent-500) 100%);
+    color: white;
+    font-weight: 600;
+    box-shadow:
+      0 0 0 0 rgba(14, 165, 233, 0.7),
+      0 4px 14px 0 rgba(14, 165, 233, 0.5);
+    animation: filter-pulse-ring 2s infinite, filter-soft-bounce 1.5s ease-in-out infinite;
+  }
+
+  @keyframes filter-pulse-ring {
+    0% {
+      box-shadow:
+        0 0 0 0 rgba(14, 165, 233, 0.7),
+        0 4px 14px 0 rgba(14, 165, 233, 0.5);
+    }
+    70% {
+      box-shadow:
+        0 0 0 12px rgba(14, 165, 233, 0),
+        0 4px 14px 0 rgba(14, 165, 233, 0.5);
+    }
+    100% {
+      box-shadow:
+        0 0 0 0 rgba(14, 165, 233, 0),
+        0 4px 14px 0 rgba(14, 165, 233, 0.5);
+    }
+  }
+
+  @keyframes filter-soft-bounce {
+    0%, 100% {
+      transform: translateY(0);
+    }
+    50% {
+      transform: translateY(-2px);
+    }
+  }
+
+  /* An toan bo giao dien mac dinh OmiCall SDK - ta dung custom UI */
+  .omi-toastify,
+  [class*="omi-c-"],
+  [class*="omi-active"],
+  [class*="omi-searchbox"],
+  [class*="omi-text-field"],
+  [class*="omi-arrow"],
+  [class*="omicall-sdk-icons"] {
+    display: none !important;
+    visibility: hidden !important;
+    width: 0 !important;
+    height: 0 !important;
+    overflow: hidden !important;
+    pointer-events: none !important;
+    position: fixed !important;
+    left: -9999px !important;
+  }
+
+  /* OmiCall custom UI animations */
+  @keyframes pulse-ring {
+    0% { box-shadow: 0 0 0 4px rgba(14, 165, 233, 0.4); }
+    50% { box-shadow: 0 0 0 20px rgba(14, 165, 233, 0); }
+    100% { box-shadow: 0 0 0 4px rgba(14, 165, 233, 0.4); }
+  }
+
+  @keyframes accept-glow {
+    0%, 100% { box-shadow: 0 4px 20px rgba(16, 185, 129, 0.4); }
+    50% { box-shadow: 0 4px 30px rgba(16, 185, 129, 0.7); }
+  }
+
+  @keyframes blink {
+    0%, 80%, 100% { opacity: 0.3; }
+    40% { opacity: 1; }
+  }
+
+  @keyframes call-dot-pulse {
+    0%, 100% { opacity: 1; }
+    50% { opacity: 0.4; }
+  }
+
+  /* Shimmer di chuyển ngang qua mini-bar KPI - visual cue "interactive" */
+  @keyframes shimmer {
+    0% { transform: translateX(-100%); }
+    60%, 100% { transform: translateX(400%); }
+  }
+
+  /* Call logs bento - 2 focus card breathing glow (3.5s lệch pha 1.75s) */
+  @keyframes glow-amber {
+    0%, 100% { box-shadow: 0 8px 24px -10px rgba(245,158,11,0.35), 0 0 0 1px rgba(245,158,11,0.2); }
+    50%      { box-shadow: 0 14px 38px -8px rgba(245,158,11,0.6),  0 0 0 2px rgba(245,158,11,0.4); }
+  }
+  @keyframes glow-purple {
+    0%, 100% { box-shadow: 0 8px 24px -10px rgba(168,85,247,0.35), 0 0 0 1px rgba(168,85,247,0.2); }
+    50%      { box-shadow: 0 14px 38px -8px rgba(168,85,247,0.6),  0 0 0 2px rgba(168,85,247,0.4); }
+  }
+  .focus-amber  { animation: glow-amber  3.5s ease-in-out infinite; transition: transform .2s ease; }
+  .focus-purple { animation: glow-purple 3.5s ease-in-out infinite 1.75s; transition: transform .2s ease; }
+  .focus-amber:hover, .focus-purple:hover { animation-play-state: paused; transform: translateY(-2px); }
+
+  /* Compact card subtle hover lift */
+  .compact-card { transition: transform .2s ease, box-shadow .2s ease; }
+  .compact-card:hover { transform: translateY(-1px); box-shadow: 0 4px 14px -8px rgba(0,0,0,0.12); }
+
+  /* Dual-thumb range slider (call logs score filter) - 2 inputs overlap, only thumb interactive */
+  .range-dual {
+    pointer-events: none;
+    -webkit-appearance: none;
+    appearance: none;
+    background: transparent;
+    width: 100%;
+    height: 16px;
+  }
+  .range-dual::-webkit-slider-runnable-track { background: transparent; height: 16px; }
+  .range-dual::-moz-range-track             { background: transparent; height: 16px; }
+  .range-dual::-webkit-slider-thumb {
+    -webkit-appearance: none;
+    appearance: none;
+    width: 16px; height: 16px;
+    border-radius: 9999px;
+    background: white;
+    border: 2px solid #0ea5e9;
+    box-shadow: 0 1px 3px rgba(0,0,0,0.2);
+    cursor: pointer;
+    pointer-events: auto;
+    position: relative;
+    z-index: 2;
+  }
+  .range-dual::-moz-range-thumb {
+    width: 16px; height: 16px;
+    border-radius: 9999px;
+    background: white;
+    border: 2px solid #0ea5e9;
+    box-shadow: 0 1px 3px rgba(0,0,0,0.2);
+    cursor: pointer;
+    pointer-events: auto;
+  }
+
+  /* ── Loading Effects Library (used by /dev/loading-demo and future global apply) ──── */
+
+  /* Shimmer skeleton: gradient sweep ngang qua placeholder.
+   * Dùng cho row table, card placeholder. Mượt hơn animate-pulse vì có direction. */
+  .skeleton-shimmer {
+    position: relative;
+    overflow: hidden;
+    background: linear-gradient(90deg, #e2e8f0 0%, #f1f5f9 50%, #e2e8f0 100%);
+    background-size: 200% 100%;
+    animation: skeleton-shimmer-slide 1.4s ease-in-out infinite;
+  }
+  @keyframes skeleton-shimmer-slide {
+    0% { background-position: 200% 0; }
+    100% { background-position: -200% 0; }
+  }
+
+  /* Skeleton shimmer variant: sky-tinted (match brand). */
+  .skeleton-shimmer-sky {
+    position: relative;
+    overflow: hidden;
+    background: linear-gradient(90deg, #e0f2fe 0%, #f0f9ff 50%, #e0f2fe 100%);
+    background-size: 200% 100%;
+    animation: skeleton-shimmer-slide 1.4s ease-in-out infinite;
+  }
+
+  /* Top progress bar: thin gradient bar slide across viewport.
+   * Indeterminate mode - không show % thật, chỉ signal "đang load". */
+  .top-progress-bar {
+    position: fixed;
+    top: 0;
+    left: 0;
+    height: 3px;
+    width: 100%;
+    z-index: 9999;
+    background: linear-gradient(90deg,
+      transparent 0%,
+      var(--color-primary-500) 30%,
+      var(--color-accent-500) 70%,
+      transparent 100%);
+    background-size: 50% 100%;
+    background-repeat: no-repeat;
+    animation: top-progress-slide 1.2s ease-in-out infinite;
+    box-shadow: 0 0 10px rgba(14, 165, 233, 0.5);
+  }
+  @keyframes top-progress-slide {
+    0% { background-position: -50% 0; }
+    100% { background-position: 150% 0; }
+  }
+
+  /* Dot loader: 3 chấm nảy lệch pha 160ms. */
+  .dot-loader { display: inline-flex; gap: 4px; align-items: center; }
+  .dot-loader > span {
+    width: 6px; height: 6px; border-radius: 9999px;
+    background: var(--color-primary-500);
+    animation: dot-bounce 1.2s ease-in-out infinite;
+  }
+  .dot-loader > span:nth-child(2) { animation-delay: 0.16s; }
+  .dot-loader > span:nth-child(3) { animation-delay: 0.32s; }
+  @keyframes dot-bounce {
+    0%, 80%, 100% { transform: translateY(0); opacity: 0.4; }
+    40% { transform: translateY(-4px); opacity: 1; }
+  }
+
+  /* Stale overlay: dim + blur content while refetching (filter change pattern). */
+  .stale-overlay {
+    position: absolute;
+    inset: 0;
+    background: rgba(248, 250, 252, 0.55);
+    backdrop-filter: blur(1.5px);
+    -webkit-backdrop-filter: blur(1.5px);
+    display: flex;
+    align-items: flex-start;
+    justify-content: center;
+    padding-top: 80px;
+    z-index: 10;
+    animation: stale-overlay-fade 200ms ease-out;
+  }
+  @keyframes stale-overlay-fade {
+    from { opacity: 0; }
+    to { opacity: 1; }
+  }
+
+  /* Spinner ring: solid border with transparent top - rotates 360° in 700ms. */
+  .spinner-ring {
+    display: inline-block;
+    border-radius: 9999px;
+    border-style: solid;
+    border-color: var(--color-primary-500);
+    border-top-color: transparent;
+    animation: spinner-rotate 700ms linear infinite;
+  }
+  @keyframes spinner-rotate {
+    to { transform: rotate(360deg); }
+  }
+
+  /* ── Page transition: content fade + truot len nhe moi lan doi route ───── */
+  .page-transition {
+    animation: page-enter 220ms ease-out both;
+  }
+  @keyframes page-enter {
+    from { opacity: 0; transform: translateY(6px); }
+    to   { opacity: 1; transform: translateY(0); }
+  }
+
+  /* ── Sidebar submenu: expand/collapse muot bang grid-rows transition ─────
+   * Ky thuat CSS thuan cho height auto: grid-template-rows 0fr <-> 1fr. */
+  .submenu-collapse {
+    display: grid;
+    grid-template-rows: 0fr;
+    transition: grid-template-rows 200ms ease-out, opacity 200ms ease-out;
+    opacity: 0;
+  }
+  .submenu-collapse.submenu-open {
+    grid-template-rows: 1fr;
+    opacity: 1;
+  }
+  .submenu-collapse > div { overflow: hidden; }
+
+  /* ── Stagger entrance: cac con xuat hien lan luot (KPI cards, blocks) ────
+   * Ap class len container; moi con lech 50ms, toi da 8 phan tu. */
+  .stagger-children > * {
+    animation: stagger-item-enter 350ms ease-out both;
+  }
+  .stagger-children > *:nth-child(1) { animation-delay: 0ms; }
+  .stagger-children > *:nth-child(2) { animation-delay: 50ms; }
+  .stagger-children > *:nth-child(3) { animation-delay: 100ms; }
+  .stagger-children > *:nth-child(4) { animation-delay: 150ms; }
+  .stagger-children > *:nth-child(5) { animation-delay: 200ms; }
+  .stagger-children > *:nth-child(6) { animation-delay: 250ms; }
+  .stagger-children > *:nth-child(7) { animation-delay: 300ms; }
+  .stagger-children > *:nth-child(8) { animation-delay: 350ms; }
+  @keyframes stagger-item-enter {
+    from { opacity: 0; transform: translateY(8px); }
+    to   { opacity: 1; transform: translateY(0); }
+  }
+
+  /* Guard chung: user tat animation o OS -> moi effect trang tri ve ~0ms */
+  @media (prefers-reduced-motion: reduce) {
+    .page-transition,
+    .stagger-children > * {
+      animation-duration: 1ms;
+      animation-delay: 0ms;
+    }
+    .submenu-collapse { transition-duration: 1ms; }
+  }
+}
