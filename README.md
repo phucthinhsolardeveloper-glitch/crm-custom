@@ -6,6 +6,52 @@
 
 ---
 
+## Giao diện
+
+> Ảnh chụp từ bản demo (dữ liệu mẫu ngành khóa học online).
+
+### Dashboard - Tổng quan & Cash Flow
+![Dashboard tổng quan](docs/screenshots/01-dashboard.png)
+
+### Dashboard - Doanh thu
+![Dashboard doanh thu](docs/screenshots/02-dashboard-revenue.png)
+
+### Quản lý Leads
+![Danh sách leads](docs/screenshots/05-leads.png)
+
+### Quản lý Khách hàng
+![Danh sách khách hàng](docs/screenshots/08-customers.png)
+
+### Đơn hàng
+![Danh sách đơn hàng](docs/screenshots/09-orders.png)
+
+### Đối soát thanh toán
+![Đối soát thanh toán](docs/screenshots/10-payments.png)
+
+<details>
+<summary><b>Xem thêm 14 giao diện khác</b></summary>
+
+| Trang | Ảnh |
+|-------|-----|
+| Dashboard - Nhân viên | ![](docs/screenshots/03-dashboard-employees.png) |
+| Dashboard - Khách hàng | ![](docs/screenshots/04-dashboard-customers.png) |
+| Kho lead phòng ban | ![](docs/screenshots/06-leads-pool.png) |
+| Kho lead thả nổi | ![](docs/screenshots/07-leads-floating.png) |
+| Lịch sử thanh toán | ![](docs/screenshots/11-payments-doi-soat.png) |
+| Công việc / Todo | ![](docs/screenshots/12-tasks.png) |
+| Nhật ký cuộc gọi | ![](docs/screenshots/13-call-logs.png) |
+| Sản phẩm | ![](docs/screenshots/14-products.png) |
+| Team của tôi | ![](docs/screenshots/15-my-team.png) |
+| Nhập dữ liệu (Import) | ![](docs/screenshots/16-import.png) |
+| Cài đặt - Nhãn | ![](docs/screenshots/17-settings-labels.png) |
+| Cài đặt - Phân phối AI | ![](docs/screenshots/18-settings-distribution.png) |
+| Quản lý người dùng | ![](docs/screenshots/19-users.png) |
+| Hoàn tiền | ![](docs/screenshots/20-refunds.png) |
+
+</details>
+
+---
+
 ## Tech Stack
 
 | Layer | Tech | Version |
