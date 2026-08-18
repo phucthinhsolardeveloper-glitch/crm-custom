@@ -16,6 +16,7 @@
     "db:push": "pnpm --filter @crm/database db:push",
     "db:migrate": "pnpm --filter @crm/database db:migrate",
     "db:seed": "pnpm --filter @crm/database db:seed",
+    "db:bootstrap-admin": "pnpm --filter @crm/database db:bootstrap-admin",
     "db:studio": "pnpm --filter @crm/database db:studio",
     "test": "turbo run test",
     "test:e2e": "turbo run test:e2e"
@@ -49,6 +50,7 @@
     "@vitest/coverage-v8": "^4.1.2",
     "eslint": "^9.0.0",
     "eslint-config-prettier": "^10.0.0",
+    "eslint-plugin-react-hooks": "^7.1.1",
     "playwright": "^1.58.2",
     "turbo": "^2.9.15",
     "typescript-eslint": "^8.57.2",

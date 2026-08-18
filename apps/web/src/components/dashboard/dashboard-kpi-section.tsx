@@ -137,11 +137,14 @@ export function DashboardKpiSection({ stats, prevStats, newVsReturning, loading 
   return (
     // stagger-children: 5 card xuat hien lan luot lech 50ms (globals.css)
     <div className="kpi-row stagger-children flex gap-3 overflow-x-auto pb-1 sm:grid sm:grid-cols-3 sm:overflow-visible sm:pb-0 lg:grid-cols-5">
-      {cards.map(card => (
-        <div key={card.key} className="min-w-[180px] shrink-0 snap-center sm:min-w-0 sm:shrink">
-          <KpiCard {...card} />
-        </div>
-      ))}
+      {cards.map(card => {
+        const { key: _key, ...cardProps } = card;
+        return (
+          <div key={card.key} className="min-w-[180px] shrink-0 snap-center sm:min-w-0 sm:shrink">
+            <KpiCard {...cardProps} />
+          </div>
+        );
+      })}
     </div>
   );
 }

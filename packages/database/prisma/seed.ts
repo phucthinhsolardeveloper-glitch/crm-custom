@@ -24,6 +24,18 @@ async function hashPassword(password: string): Promise<string> {
 }
 
 async function main() {
+  // Safety guard 2026-08-18: seed.ts wipes ALL business data unconditionally
+  // (deleteMany on every table below). Never allow that against a live
+  // production database by accident — require an explicit opt-in env var.
+  if (process.env.NODE_ENV === 'production' && process.env.ALLOW_PROD_SEED_WIPE !== 'true') {
+    throw new Error(
+      'db:seed wipes and recreates ALL demo data — refusing to run with NODE_ENV=production. ' +
+      'This script is for dev/demo fixtures only. To bootstrap a real admin without wiping data, ' +
+      'use db:bootstrap-admin instead. If you really intend to wipe a production database, ' +
+      'set ALLOW_PROD_SEED_WIPE=true explicitly.',
+    );
+  }
+
   console.log('Seeding database...');
   console.log(`  Using SEED_PASSWORD from ${process.env.SEED_PASSWORD ? 'env' : 'default (dev)'}`);
 
@@ -360,7 +372,7 @@ async function main() {
       data: {
         leadId: leads[11].id, customerId: customers[1].id, productId: product3.id,
         amount: 8000000, vatRate: 10, vatAmount: 800000, totalAmount: 8800000,
-        status: OrderStatus.CONFIRMED, createdBy: user2.id,
+        status: OrderStatus.PENDING, createdBy: user2.id, // partial payment (CK lần 1/2) — chưa đủ totalAmount
       },
     }),
     prisma.order.create({

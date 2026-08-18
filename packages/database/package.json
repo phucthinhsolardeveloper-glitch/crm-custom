@@ -11,6 +11,7 @@
     "db:push": "dotenv -e ../../.env -- prisma db push",
     "db:migrate": "dotenv -e ../../.env -- prisma migrate dev",
     "db:seed": "dotenv -e ../../.env -- tsx prisma/seed.ts",
+    "db:bootstrap-admin": "dotenv -e ../../.env -- tsx prisma/bootstrap-admin.ts",
     "db:studio": "dotenv -e ../../.env -- prisma studio"
   },
   "dependencies": {
