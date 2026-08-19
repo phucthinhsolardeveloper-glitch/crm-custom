@@ -283,6 +283,7 @@ server {
 | `DATABASE_URL` | (required) | PostgreSQL connection string |
 | `REDIS_URL` | `redis://localhost:6380` | Redis connection string |
 | `JWT_SECRET` | (required) | Secret for JWT signing |
+| `ENCRYPTION_KEY` | (required) | 64-char hex (32 bytes), `openssl rand -hex 32`. AES-256-GCM key for encrypting `UserSipConfig.sipPassword` (OmiCall) at rest — see `apps/api/src/common/utils/aes-gcm.ts` |
 | `JWT_EXPIRY` | `3600` | JWT token lifetime (seconds) |
 | `API_PORT` | `3010` | Backend API port |
 | `WEB_PORT` | `3011` | Frontend port |

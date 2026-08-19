@@ -142,6 +142,7 @@ if (user.role === UserRole.SUPER_ADMIN || user.role === UserRole.MANAGER) {
 - CSV export sanitization (formula injection prevention)
 - File uploads: UUID filenames, MIME validation, 10MB max
 - httpOnly + Secure + SameSite cookies for JWT
+- OmiCall SIP password (`UserSipConfig.sipPassword`) encrypted AES-256-GCM at rest (`common/utils/aes-gcm.ts`, `ENCRYPTION_KEY` env) — decrypted only for SUPER_ADMIN edit form and the owning user's own SDK connect flow
 
 ## Business Logic - Key Decisions
 

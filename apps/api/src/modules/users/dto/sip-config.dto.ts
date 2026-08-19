@@ -2,7 +2,8 @@ import { IsString, IsNotEmpty, MaxLength } from 'class-validator';
 
 /**
  * SIP credentials OmiCall do super_admin nhap cho tung user.
- * sipPassword luu plaintext (app noi bo, HTTPS) - SDK can password goc de register tong dai.
+ * sipPassword ma hoa AES-256-GCM truoc khi luu (xem users.service.ts) - service
+ * giai ma khi tra ve cho admin (form edit) hoac chinh user (SDK can password goc).
  */
 export class UpsertSipConfigDto {
   @IsString()

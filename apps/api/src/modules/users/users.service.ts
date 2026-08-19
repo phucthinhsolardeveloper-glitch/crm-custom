@@ -16,6 +16,7 @@ import { AuthService } from '../auth/auth.service';
 import { DashboardService } from '../dashboard/dashboard.service';
 import { CacheService } from '../../common/cache/cache.service';
 import { CACHE_KEYS, CACHE_TTL } from '../../common/cache/cache.constants';
+import { encrypt as encryptSecret, decrypt as decryptSecret } from '../../common/utils/aes-gcm';
 
 const BCRYPT_ROUNDS = 12;
 
@@ -361,7 +362,8 @@ export class UsersService {
       where: { userId, deletedAt: null },
       select: { id: true, sipRealm: true, sipUser: true, sipPassword: true, isActive: true, updatedAt: true },
     });
-    return config; // null neu chua co
+    if (!config) return null;
+    return { ...config, sipPassword: decryptSecret(config.sipPassword) };
   }
 
   /** Tao/cap nhat SIP config cho user (super_admin only - guard o controller). */
@@ -369,23 +371,23 @@ export class UsersService {
     const user = await this.repo.findById(userId);
     if (!user) throw new NotFoundException('Không tìm thấy người dùng');
 
+    const encryptedPassword = encryptSecret(dto.sipPassword);
     const existing = await this.prisma.userSipConfig.findFirst({
       where: { userId, deletedAt: null },
       select: { id: true },
     });
 
-    if (existing) {
-      return this.prisma.userSipConfig.update({
-        where: { id: existing.id },
-        data: { sipRealm: dto.sipRealm, sipUser: dto.sipUser, sipPassword: dto.sipPassword, isActive: true },
-        select: { id: true, sipRealm: true, sipUser: true, sipPassword: true, isActive: true, updatedAt: true },
-      });
-    }
-
-    return this.prisma.userSipConfig.create({
-      data: { userId, sipRealm: dto.sipRealm, sipUser: dto.sipUser, sipPassword: dto.sipPassword },
-      select: { id: true, sipRealm: true, sipUser: true, sipPassword: true, isActive: true, updatedAt: true },
-    });
+    const config = existing
+      ? await this.prisma.userSipConfig.update({
+          where: { id: existing.id },
+          data: { sipRealm: dto.sipRealm, sipUser: dto.sipUser, sipPassword: encryptedPassword, isActive: true },
+          select: { id: true, sipRealm: true, sipUser: true, sipPassword: true, isActive: true, updatedAt: true },
+        })
+      : await this.prisma.userSipConfig.create({
+          data: { userId, sipRealm: dto.sipRealm, sipUser: dto.sipUser, sipPassword: encryptedPassword },
+          select: { id: true, sipRealm: true, sipUser: true, sipPassword: true, isActive: true, updatedAt: true },
+        });
+    return { ...config, sipPassword: dto.sipPassword };
   }
 
   /**
@@ -426,6 +428,7 @@ export class UsersService {
       where: { userId, deletedAt: null, isActive: true },
       select: { sipRealm: true, sipUser: true, sipPassword: true },
     });
-    return config; // null neu chua cau hinh
+    if (!config) return null;
+    return { ...config, sipPassword: decryptSecret(config.sipPassword) };
   }
 }
